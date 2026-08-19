@@ -21,10 +21,8 @@ export type SnapshotResponse = {
 };
 
 export type SnapshotSyncResponse = {
-  action: "sync_mfl";
-  status: "stored";
-  synced_at?: string;
-  warnings?: string[];
+  action: "start_mfl_sync";
+  status: "accepted";
 };
 
 export type RookieAssessment = {
@@ -130,6 +128,27 @@ export async function syncSnapshot(fetcher: AuthorizedFetch): Promise<SnapshotSy
       franchise_id: leagueCoordinates.franchiseId,
     }),
   });
+}
+
+export async function waitForNewSnapshot(
+  fetcher: AuthorizedFetch,
+  previousObservedAt: string | undefined,
+  timeoutMilliseconds = 150_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMilliseconds;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const response = await latestSnapshot(fetcher);
+      const observedAt = response.snapshot?.observed_at;
+      if (observedAt && observedAt !== previousObservedAt) return observedAt;
+    } catch (cause) {
+      lastError = cause;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("The snapshot is still running. Try refreshing the analysis in a moment.");
 }
 
 export async function analyzeSnapshot(

@@ -5,6 +5,7 @@ import {
   analyzeSnapshot,
   leagueCoordinates,
   syncSnapshot,
+  waitForNewSnapshot,
   type DropCandidate,
   type LiveAnalysis,
   type RookieAssessment,
@@ -33,6 +34,7 @@ export default function Home() {
   const [view, setView] = useState<View>("overview");
   const [capTarget, setCapTarget] = useState(10);
   const [analysis, setAnalysis] = useState<LiveAnalysis | null>(null);
+  const [snapshotObservedAt, setSnapshotObservedAt] = useState<string>();
   const [rookiePool, setRookiePool] = useState<RookiePool>("overall");
   const [syncStatus, setSyncStatus] = useState<"idle" | "loading" | "syncing" | "current" | "error">("idle");
   const [syncMessage, setSyncMessage] = useState("Authenticated API ready");
@@ -44,6 +46,7 @@ export default function Home() {
       const response = await analyzeSnapshot(auth.authorizedFetch, target);
       if (!response.analysis?.analysis) throw new Error("Analysis response was empty");
       setAnalysis(response.analysis.analysis);
+      setSnapshotObservedAt(response.analysis.snapshot_observed_at);
       setSyncMessage(`Observed ${formatTimestamp(response.analysis.snapshot_observed_at)}`);
       setSyncStatus("current");
     } catch (cause) {
@@ -56,14 +59,15 @@ export default function Home() {
     setSyncStatus("syncing");
     setSyncMessage("Fetching live MFL draft data…");
     try {
-      const response = await syncSnapshot(auth.authorizedFetch);
-      setSyncMessage(response.synced_at ? `Snapshot stored ${formatTimestamp(response.synced_at)}` : "Snapshot stored. Reanalyzing…");
+      await syncSnapshot(auth.authorizedFetch);
+      setSyncMessage("Snapshot queued. Waiting for live MFL data…");
+      await waitForNewSnapshot(auth.authorizedFetch, snapshotObservedAt);
       await loadAnalysis(capTarget);
     } catch (cause) {
       setSyncMessage(cause instanceof Error ? cause.message : "Snapshot sync failed");
       setSyncStatus("error");
     }
-  }, [auth.authorizedFetch, capTarget, loadAnalysis]);
+  }, [auth.authorizedFetch, capTarget, loadAnalysis, snapshotObservedAt]);
 
   useEffect(() => {
     if (!auth.ready || !auth.user) return;

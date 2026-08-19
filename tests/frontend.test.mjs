@@ -66,6 +66,7 @@ test("renders the live analysis instead of the original rookie mock", async () =
   assert.match(page, /rookiePool === ["']overall["']/);
   assert.match(page, /New snapshot/);
   assert.match(page, /syncSnapshot/);
+  assert.match(page, /waitForNewSnapshot/);
   assert.match(page, /draft\.picks \?\? \[\]/);
   assert.match(page, /board\.offense\.candidates \?\? \[\]/);
   assert.doesNotMatch(page, /Jordyn Tyson|Makai Lemon|KC Concepcion/);
