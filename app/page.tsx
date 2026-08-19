@@ -4,14 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import {
   analyzeSnapshot,
   leagueCoordinates,
+  syncSnapshot,
   type DropCandidate,
   type LiveAnalysis,
   type RookieAssessment,
+  type RookieBoardPool,
 } from "./api-client";
 import { useAuth } from "./auth";
 
 type View = "overview" | "roster" | "draft";
-type RookiePool = "offense" | "idp";
+type RookiePool = "overall" | "offense" | "idp";
 
 function Mark() {
   return (
@@ -31,8 +33,8 @@ export default function Home() {
   const [view, setView] = useState<View>("overview");
   const [capTarget, setCapTarget] = useState(10);
   const [analysis, setAnalysis] = useState<LiveAnalysis | null>(null);
-  const [rookiePool, setRookiePool] = useState<RookiePool>("offense");
-  const [syncStatus, setSyncStatus] = useState<"idle" | "loading" | "current" | "error">("idle");
+  const [rookiePool, setRookiePool] = useState<RookiePool>("overall");
+  const [syncStatus, setSyncStatus] = useState<"idle" | "loading" | "syncing" | "current" | "error">("idle");
   const [syncMessage, setSyncMessage] = useState("Authenticated API ready");
 
   const loadAnalysis = useCallback(async (target: number) => {
@@ -49,6 +51,19 @@ export default function Home() {
       setSyncStatus("error");
     }
   }, [auth.authorizedFetch]);
+
+  const createFreshSnapshot = useCallback(async () => {
+    setSyncStatus("syncing");
+    setSyncMessage("Fetching live MFL draft data…");
+    try {
+      const response = await syncSnapshot(auth.authorizedFetch);
+      setSyncMessage(response.synced_at ? `Snapshot stored ${formatTimestamp(response.synced_at)}` : "Snapshot stored. Reanalyzing…");
+      await loadAnalysis(capTarget);
+    } catch (cause) {
+      setSyncMessage(cause instanceof Error ? cause.message : "Snapshot sync failed");
+      setSyncStatus("error");
+    }
+  }, [auth.authorizedFetch, capTarget, loadAnalysis]);
 
   useEffect(() => {
     if (!auth.ready || !auth.user) return;
@@ -80,7 +95,8 @@ export default function Home() {
   };
   const draft = analysis?.draft ?? { status: "loading", picks: [], pick_count: 0, total_salary_if_all_active: 0 };
   const board = analysis?.rookie_board;
-  const selectedBoard = board?.[rookiePool];
+  const overallBoard = buildOverallRookieBoard(board);
+  const selectedBoard = rookiePool === "overall" ? overallBoard : board?.[rookiePool];
   const rookies = selectedBoard?.candidates ?? [];
   const draftPicks = draft.picks;
   const rosterMoves = buildRosterMoves(analysis);
@@ -122,10 +138,10 @@ export default function Home() {
         <div className={`sync-card ${syncStatus === "error" ? "has-error" : ""}`}>
           <span className="signal"><i /></span>
           <div>
-            <strong>{syncStatus === "loading" ? "Loading snapshot" : syncStatus === "error" ? "API request failed" : "Data connection"}</strong>
+            <strong>{syncStatus === "syncing" ? "Creating snapshot" : syncStatus === "loading" ? "Loading snapshot" : syncStatus === "error" ? "API request failed" : "Data connection"}</strong>
             <small>{syncMessage}</small>
           </div>
-          <button disabled={syncStatus === "loading"} onClick={() => void loadAnalysis(capTarget)} aria-label="Refresh league analysis" title="Refresh analysis">↻</button>
+          <button disabled={syncStatus === "loading" || syncStatus === "syncing"} onClick={() => void loadAnalysis(capTarget)} aria-label="Refresh league analysis" title="Reanalyze current snapshot">↻</button>
         </div>
 
         <div className="profile">
@@ -144,6 +160,9 @@ export default function Home() {
             <span aria-hidden="true">⌄</span>
           </div>
           <div className="top-actions">
+            <button className="snapshot-button" disabled={syncStatus === "loading" || syncStatus === "syncing"} onClick={() => void createFreshSnapshot()}>
+              {syncStatus === "syncing" ? "Syncing…" : "New snapshot"}
+            </button>
             <span className="season">{leagueCoordinates.season} season</span>
             <button className="icon-button" aria-label="Notifications">♢<i /></button>
           </div>
@@ -267,6 +286,7 @@ export default function Home() {
             <section className="workspace-view">
               <div className="view-heading"><div><p className="eyebrow">{leagueCoordinates.season} rookie board</p><h1>The available board,<br />right now.</h1></div><span className="summary-pill">{selectedBoard?.ranked_candidates ?? 0} ranked · {selectedBoard?.unranked_candidates ?? 0} unranked</span></div>
               <div className="board-switch" aria-label="Rookie board group">
+                <button className={rookiePool === "overall" ? "active" : ""} onClick={() => setRookiePool("overall")}>Overall <span>{overallBoard?.candidates.length ?? 0}</span></button>
                 <button className={rookiePool === "offense" ? "active" : ""} onClick={() => setRookiePool("offense")}>Offense <span>{board?.offense.candidates.length ?? 0}</span></button>
                 <button className={rookiePool === "idp" ? "active" : ""} onClick={() => setRookiePool("idp")}>IDP <span>{board?.idp.candidates.length ?? 0}</span></button>
               </div>
@@ -288,7 +308,7 @@ export default function Home() {
                   <p className="small-note">Total salary if all remaining picks stay active: <strong>${formatMoney(draft.total_salary_if_all_active)}</strong>.</p>
                 </aside>
               </div>
-              {board?.caution && <div className="method-note rookie-caution"><strong>Board methodology</strong><p>{board.caution}</p></div>}
+              {board?.caution && <div className="method-note rookie-caution"><strong>Board methodology</strong><p>{rookiePool === "overall" ? "Overall combines every currently available rookie and orders them by MFL rookie-only ADP. Offense and IDP retain their separately calibrated blended rankings." : board.caution}</p></div>}
             </section>
           )}
 
@@ -297,6 +317,32 @@ export default function Home() {
       </main>
     </div>
   );
+}
+
+function buildOverallRookieBoard(board: LiveAnalysis["rookie_board"] | undefined): RookieBoardPool | undefined {
+  if (!board) return undefined;
+  const candidates = [
+    ...board.offense.candidates,
+    ...board.idp.candidates,
+    ...(board.other?.candidates ?? []),
+  ].map((candidate): RookieAssessment => ({ ...candidate, rank: undefined, valued: Boolean(candidate.rookie_adp && candidate.rookie_adp > 0) }));
+
+  candidates.sort((left, right) => {
+    const leftADP = left.rookie_adp && left.rookie_adp > 0 ? left.rookie_adp : Number.POSITIVE_INFINITY;
+    const rightADP = right.rookie_adp && right.rookie_adp > 0 ? right.rookie_adp : Number.POSITIVE_INFINITY;
+    return leftADP - rightADP || left.name.localeCompare(right.name);
+  });
+  let rank = 0;
+  for (const candidate of candidates) {
+    if (candidate.valued) candidate.rank = ++rank;
+  }
+  return {
+    available: rank > 0,
+    source: "MFL rookie-only ADP",
+    ranked_candidates: rank,
+    unranked_candidates: candidates.length - rank,
+    candidates,
+  };
 }
 
 function AuthScreen({

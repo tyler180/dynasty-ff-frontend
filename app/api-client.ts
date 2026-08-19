@@ -20,6 +20,13 @@ export type SnapshotResponse = {
   };
 };
 
+export type SnapshotSyncResponse = {
+  action: "sync_mfl";
+  status: "stored";
+  synced_at?: string;
+  warnings?: string[];
+};
+
 export type RookieAssessment = {
   rank?: number;
   valued: boolean;
@@ -111,6 +118,18 @@ export async function latestSnapshot(fetcher: AuthorizedFetch): Promise<Snapshot
     franchise_id: leagueCoordinates.franchiseId,
   });
   return request<SnapshotResponse>(fetcher, `/v1/snapshots/latest?${query}`);
+}
+
+export async function syncSnapshot(fetcher: AuthorizedFetch): Promise<SnapshotSyncResponse> {
+  return request<SnapshotSyncResponse>(fetcher, "/v1/snapshots/sync", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      season: leagueCoordinates.season,
+      league_id: leagueCoordinates.leagueId,
+      franchise_id: leagueCoordinates.franchiseId,
+    }),
+  });
 }
 
 export async function analyzeSnapshot(
