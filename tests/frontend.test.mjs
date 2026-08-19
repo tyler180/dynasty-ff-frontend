@@ -51,3 +51,17 @@ test("uses Authentik PKCE and an authenticated API client", async () => {
   assert.match(client, /\/v1\/analyze/);
   assert.match(compose, /NEXT_PUBLIC_API_BASE_URL/);
 });
+
+test("renders the live analysis instead of the original rookie mock", async () => {
+  const [page, client] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/api-client.ts", root), "utf8"),
+  ]);
+
+  assert.match(page, /analyzeSnapshot/);
+  assert.match(page, /rookie_board/);
+  assert.match(page, /rookiePool === ["']offense["']/);
+  assert.match(page, /rookiePool === ["']idp["']/);
+  assert.doesNotMatch(page, /Jordyn Tyson|Makai Lemon|KC Concepcion/);
+  assert.match(client, /analysis:\s*LiveAnalysis/);
+});

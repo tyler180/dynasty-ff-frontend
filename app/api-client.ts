@@ -20,10 +20,88 @@ export type SnapshotResponse = {
   };
 };
 
+export type RookieAssessment = {
+  rank?: number;
+  valued: boolean;
+  player_id: string;
+  name: string;
+  position: string;
+  nfl_team?: string;
+  rookie_adp?: number;
+};
+
+export type RookieBoardPool = {
+  available: boolean;
+  source?: string;
+  ranked_candidates: number;
+  unranked_candidates: number;
+  candidates: RookieAssessment[];
+};
+
+export type DropCandidate = {
+  player_id: string;
+  name: string;
+  position: string;
+  age: number;
+  salary_cap_relief: number;
+  dynasty_adjusted_vorp?: number;
+  value_over_replacement?: number;
+  disposition: string;
+  disposition_reason: string;
+};
+
+export type LiveAnalysis = {
+  snapshot_date: string;
+  league: string;
+  team: string;
+  cap: { used: number; limit: number; space: number };
+  roster: {
+    active: { used: number; limit: number; open: number };
+    injured_reserve: { used: number; limit: number; open: number };
+    taxi: { used: number; limit: number; open: number };
+  };
+  draft: {
+    status: string;
+    picks: Array<{
+      pick: string;
+      overall: number;
+      salary: number;
+      fits_active_now: boolean;
+      fits_taxi_now: boolean;
+    }>;
+    pick_count: number;
+    total_salary_if_all_active: number;
+  };
+  drop_evaluation: {
+    available: boolean;
+    recommended_cuts?: DropCandidate[];
+    recommended_cap_relief?: number;
+    drop_candidates?: DropCandidate[];
+    trade_first?: DropCandidate[];
+    hold_develop?: DropCandidate[];
+    caution: string;
+  };
+  rookie_board: {
+    available: boolean;
+    source?: string;
+    ranked_candidates: number;
+    unranked_candidates: number;
+    offense: RookieBoardPool;
+    idp: RookieBoardPool;
+    other?: RookieBoardPool;
+    caution: string;
+  };
+  warnings: string[];
+};
+
 export type AnalysisResponse = {
   action: "analyze";
   status: "ok";
-  analysis?: unknown;
+  analysis?: {
+    snapshot_observed_at: string;
+    projection_fallback: string;
+    analysis: LiveAnalysis;
+  };
 };
 
 export async function latestSnapshot(fetcher: AuthorizedFetch): Promise<SnapshotResponse> {
