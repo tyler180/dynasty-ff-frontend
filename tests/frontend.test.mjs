@@ -49,6 +49,7 @@ test("uses Authentik PKCE and an authenticated API client", async () => {
   assert.match(metadata, /\.well-known\/openid-configuration/);
   assert.match(client, /\/v1\/snapshots\/latest/);
   assert.match(client, /\/v1\/analyze/);
+  assert.match(client, /\/v1\/snapshots\/sync/);
   assert.match(compose, /NEXT_PUBLIC_API_BASE_URL/);
 });
 
@@ -62,6 +63,9 @@ test("renders the live analysis instead of the original rookie mock", async () =
   assert.match(page, /rookie_board/);
   assert.match(page, /rookiePool === ["']offense["']/);
   assert.match(page, /rookiePool === ["']idp["']/);
+  assert.match(page, /rookiePool === ["']overall["']/);
+  assert.match(page, /New snapshot/);
+  assert.match(page, /syncSnapshot/);
   assert.doesNotMatch(page, /Jordyn Tyson|Makai Lemon|KC Concepcion/);
   assert.match(client, /analysis:\s*LiveAnalysis/);
 });

@@ -51,6 +51,7 @@ main { grid-column: 2; min-width: 0; }
 .league-select { display: flex; align-items: center; gap: 11px; }.league-badge { width: 33px; height: 33px; display: grid; place-items: center; background: #e3dfd1; border-radius: 50%; font-size: 10px; font-weight: 800; }
 .league-select small { color: var(--muted); text-transform: uppercase; letter-spacing: .12em; font-size: 8px; }.league-select strong { font-size: 12px; }.league-select > span:last-child { margin-left: 4px; color: var(--muted); }
 .top-actions { display: flex; align-items: center; gap: 19px; }.season { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .09em; }
+.snapshot-button { border: 1px solid var(--forest); border-radius: 4px; background: var(--forest); color: white; padding: 9px 13px; font-size: 10px; font-weight: 800; letter-spacing: .04em; cursor: pointer; }.snapshot-button:hover { background: #25483c; }.snapshot-button:disabled { cursor: wait; opacity: .6; }
 .icon-button { width: 33px; height: 33px; border: 1px solid var(--line); background: var(--white); border-radius: 50%; position: relative; cursor: pointer; }.icon-button i { position: absolute; right: 5px; top: 4px; width: 5px; height: 5px; background: var(--red); border-radius: 50%; }
 .mobile-brand { display: none; border: 0; background: transparent; }
 .content { padding: 60px 48px 24px; max-width: 1440px; margin: 0 auto; }
