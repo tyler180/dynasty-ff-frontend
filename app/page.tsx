@@ -1,65 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { latestSnapshot } from "./api-client";
+import { useCallback, useEffect, useState } from "react";
+import {
+  analyzeSnapshot,
+  leagueCoordinates,
+  type DropCandidate,
+  type LiveAnalysis,
+  type RookieAssessment,
+} from "./api-client";
 import { useAuth } from "./auth";
 
 type View = "overview" | "roster" | "draft";
-
-const draftPicks = [
-  { pick: "1.06", salary: 15, tier: "Impact" },
-  { pick: "1.07", salary: 15, tier: "Impact" },
-  { pick: "2.06", salary: 7, tier: "Starter" },
-  { pick: "3.01", salary: 3, tier: "Depth" },
-  { pick: "3.06", salary: 3, tier: "Depth" },
-];
-
-const rookies = [
-  { rank: 1, name: "Jordyn Tyson", meta: "WR · NO", adp: "4.20", fit: "Primary target" },
-  { rank: 2, name: "Makai Lemon", meta: "WR · PHI", adp: "4.71", fit: "Primary target" },
-  { rank: 3, name: "KC Concepcion", meta: "WR · CLE", adp: "7.35", fit: "Value at 1.07" },
-  { rank: 4, name: "Fernando Mendoza", meta: "QB · LV", adp: "7.78", fit: "Value at 1.07" },
-  { rank: 5, name: "Kenyon Sadiq", meta: "TE · NYJ", adp: "8.41", fit: "Watch list" },
-];
-
-const rosterMoves = [
-  {
-    name: "Derrick Barnes",
-    meta: "LB · age 27",
-    salary: 4,
-    vorp: "−5.02",
-    status: "Drop candidate",
-    note: "Below the current LB replacement level",
-    tone: "red",
-  },
-  {
-    name: "Bradley Chubb",
-    meta: "DE · age 30",
-    salary: 6,
-    vorp: "−0.47",
-    status: "Drop candidate",
-    note: "Replaceable production at a higher salary",
-    tone: "red",
-  },
-  {
-    name: "Adonai Mitchell",
-    meta: "WR · age 23",
-    salary: 11,
-    vorp: "—",
-    status: "Develop",
-    note: "Early-career protection overrides efficiency",
-    tone: "amber",
-  },
-  {
-    name: "Saquon Barkley",
-    meta: "RB · age 29",
-    salary: 39,
-    vorp: "+4.91",
-    status: "Trade first",
-    note: "Market value is greater than cap relief",
-    tone: "blue",
-  },
-];
+type RookiePool = "offense" | "idp";
 
 function Mark() {
   return (
@@ -78,24 +30,31 @@ export default function Home() {
   const auth = useAuth();
   const [view, setView] = useState<View>("overview");
   const [capTarget, setCapTarget] = useState(10);
+  const [analysis, setAnalysis] = useState<LiveAnalysis | null>(null);
+  const [rookiePool, setRookiePool] = useState<RookiePool>("offense");
   const [syncStatus, setSyncStatus] = useState<"idle" | "loading" | "current" | "error">("idle");
   const [syncMessage, setSyncMessage] = useState("Authenticated API ready");
 
-  const projectedSpace = useMemo(() => 21 + Math.min(capTarget, 10), [capTarget]);
-
-  async function refreshSnapshot() {
+  const loadAnalysis = useCallback(async (target: number) => {
     setSyncStatus("loading");
-    setSyncMessage("Reading latest snapshot…");
+    setSyncMessage("Analyzing latest snapshot…");
     try {
-      const response = await latestSnapshot(auth.authorizedFetch);
-      const observedAt = response.snapshot?.observed_at;
-      setSyncMessage(observedAt ? `Observed ${formatTimestamp(observedAt)}` : "Latest snapshot loaded");
+      const response = await analyzeSnapshot(auth.authorizedFetch, target);
+      if (!response.analysis?.analysis) throw new Error("Analysis response was empty");
+      setAnalysis(response.analysis.analysis);
+      setSyncMessage(`Observed ${formatTimestamp(response.analysis.snapshot_observed_at)}`);
       setSyncStatus("current");
     } catch (cause) {
-      setSyncMessage(cause instanceof Error ? cause.message : "Snapshot request failed");
+      setSyncMessage(cause instanceof Error ? cause.message : "Analysis request failed");
       setSyncStatus("error");
     }
-  }
+  }, [auth.authorizedFetch]);
+
+  useEffect(() => {
+    if (!auth.ready || !auth.user) return;
+    const timeout = window.setTimeout(() => void loadAnalysis(10), 0);
+    return () => window.clearTimeout(timeout);
+  }, [auth.ready, auth.user, loadAnalysis]);
 
   if (!auth.ready) return <AuthScreen title="Opening Front Office…" />;
   if (!auth.user) {
@@ -108,6 +67,27 @@ export default function Home() {
       />
     );
   }
+  if (!analysis && syncStatus === "loading") return <AuthScreen title="Loading league analysis…" />;
+  if (!analysis && syncStatus === "error") {
+    return <AuthScreen title="League analysis unavailable" message={syncMessage} actionLabel="Try again" onAction={() => void loadAnalysis(capTarget)} />;
+  }
+
+  const cap = analysis?.cap ?? { used: 0, limit: 0, space: 0 };
+  const roster = analysis?.roster ?? {
+    active: { used: 0, limit: 0, open: 0 },
+    injured_reserve: { used: 0, limit: 0, open: 0 },
+    taxi: { used: 0, limit: 0, open: 0 },
+  };
+  const draft = analysis?.draft ?? { status: "loading", picks: [], pick_count: 0, total_salary_if_all_active: 0 };
+  const board = analysis?.rookie_board;
+  const selectedBoard = board?.[rookiePool];
+  const rookies = selectedBoard?.candidates ?? [];
+  const draftPicks = draft.picks;
+  const rosterMoves = buildRosterMoves(analysis);
+  const priorityMoves = analysis?.drop_evaluation.recommended_cuts ?? [];
+  const priorityRosterMoves = priorityMoves.map((candidate) => rosterMove(candidate, "Drop candidate", "red"));
+  const recommendedRelief = analysis?.drop_evaluation.recommended_cap_relief ?? 0;
+  const projectedSpace = cap.space + recommendedRelief;
 
   const displayName = auth.user.profile.name || auth.user.profile.preferred_username || auth.user.profile.email || "Signed in";
   const initials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
@@ -129,7 +109,7 @@ export default function Home() {
             <span className="nav-icon">⌂</span> Overview
           </button>
           <button className={view === "roster" ? "active" : ""} onClick={() => setView("roster")}>
-            <span className="nav-icon">◫</span> Roster plan <em>2</em>
+            <span className="nav-icon">◫</span> Roster plan <em>{analysis?.drop_evaluation.drop_candidates?.length ?? 0}</em>
           </button>
           <button className={view === "draft" ? "active" : ""} onClick={() => setView("draft")}>
             <span className="nav-icon">◇</span> Rookie board
@@ -145,7 +125,7 @@ export default function Home() {
             <strong>{syncStatus === "loading" ? "Loading snapshot" : syncStatus === "error" ? "API request failed" : "Data connection"}</strong>
             <small>{syncMessage}</small>
           </div>
-          <button disabled={syncStatus === "loading"} onClick={() => void refreshSnapshot()} aria-label="Refresh league snapshot" title="Refresh snapshot">↻</button>
+          <button disabled={syncStatus === "loading"} onClick={() => void loadAnalysis(capTarget)} aria-label="Refresh league analysis" title="Refresh analysis">↻</button>
         </div>
 
         <div className="profile">
@@ -160,11 +140,11 @@ export default function Home() {
           <button className="mobile-brand" aria-label="Open navigation"><Mark /></button>
           <div className="league-select">
             <span className="league-badge">IP</span>
-            <span><small>League</small><strong>I Paid What For Who?</strong></span>
+            <span><small>League</small><strong>{analysis?.league ?? "League"}</strong></span>
             <span aria-hidden="true">⌄</span>
           </div>
           <div className="top-actions">
-            <span className="season">2026 season</span>
+            <span className="season">{leagueCoordinates.season} season</span>
             <button className="icon-button" aria-label="Notifications">♢<i /></button>
           </div>
         </header>
@@ -174,34 +154,34 @@ export default function Home() {
             <>
               <section className="hero">
                 <div>
-                  <p className="eyebrow">Team McLean · Decision room</p>
-                  <h1>Your roster is ready<br />for the draft.</h1>
-                  <p className="hero-copy">You can sign both first-round picks today. Two low-cost moves create a cleaner path through the rest of the board.</p>
+                  <p className="eyebrow">{analysis?.team ?? "Team"} · Decision room</p>
+                  <h1>Your live board is ready<br />for the next pick.</h1>
+                  <p className="hero-copy">Rankings reflect the rookies still available in MFL as of {formatDate(analysis?.snapshot_date)}. Your next selection is {draftPicks[0]?.pick ?? "not currently scheduled"}.</p>
                 </div>
                 <div className="readiness">
-                  <div className="score-ring"><span><strong>92</strong><small>READY</small></span></div>
-                  <p><strong>Strong position</strong><span>Cap and roster compliant</span></p>
+                  <div className="score-ring"><span><strong>{board?.ranked_candidates ?? 0}</strong><small>RANKED</small></span></div>
+                  <p><strong>Live availability</strong><span>{board?.unranked_candidates ?? 0} more unranked</span></p>
                 </div>
               </section>
 
               <section className="stat-grid" aria-label="Team summary">
                 <article>
-                  <div className="stat-heading"><span>Cap space</span><em className="positive">+$21</em></div>
-                  <strong className="big-stat">$21</strong><span className="muted">of $250 available</span>
-                  <div className="meter"><i style={{ width: "91.6%" }} /></div>
-                  <small>$229 committed</small>
+                  <div className="stat-heading"><span>Cap space</span><em className="positive">+${formatMoney(cap.space)}</em></div>
+                  <strong className="big-stat">${formatMoney(cap.space)}</strong><span className="muted">of ${formatMoney(cap.limit)} available</span>
+                  <div className="meter"><i style={{ width: `${cap.limit > 0 ? Math.min(100, (cap.used / cap.limit) * 100) : 0}%` }} /></div>
+                  <small>${formatMoney(cap.used)} committed</small>
                 </article>
                 <article>
-                  <div className="stat-heading"><span>Active roster</span><em>7 open</em></div>
-                  <strong className="big-stat">20<span>/27</span></strong><span className="muted">players signed</span>
-                  <div className="slot-row" aria-label="20 of 27 roster slots filled">{Array.from({ length: 27 }, (_, i) => <i className={i < 20 ? "filled" : ""} key={i} />)}</div>
-                  <small>Plus 2 IR · 1 taxi slot open</small>
+                  <div className="stat-heading"><span>Active roster</span><em>{roster.active.open} open</em></div>
+                  <strong className="big-stat">{roster.active.used}<span>/{roster.active.limit}</span></strong><span className="muted">players signed</span>
+                  <div className="slot-row" aria-label={`${roster.active.used} of ${roster.active.limit} roster slots filled`}>{Array.from({ length: roster.active.limit }, (_, i) => <i className={i < roster.active.used ? "filled" : ""} key={i} />)}</div>
+                  <small>{roster.injured_reserve.used} IR · {roster.taxi.open} taxi slots open</small>
                 </article>
                 <article>
-                  <div className="stat-heading"><span>Draft capital</span><em className="accent">11 picks</em></div>
-                  <strong className="big-stat">1.06</strong><span className="muted">next selection</span>
+                  <div className="stat-heading"><span>Draft capital</span><em className="accent">{draft.pick_count} picks</em></div>
+                  <strong className="big-stat">{draftPicks[0]?.pick ?? "—"}</strong><span className="muted">next selection</span>
                   <div className="pick-line"><i /><i /><i /><i /><i /></div>
-                  <small>Two picks in round one</small>
+                  <small>${formatMoney(draft.total_salary_if_all_active)} total rookie salary</small>
                 </article>
               </section>
 
@@ -214,7 +194,7 @@ export default function Home() {
                   <p className="panel-intro">A two-player move reaches your <strong>${capTarget} relief target</strong> while protecting young and tradeable assets.</p>
 
                   <div className="move-list">
-                    {rosterMoves.slice(0, 2).map((player, index) => (
+                    {priorityRosterMoves.map((player, index) => (
                       <div className="move" key={player.name}>
                         <span className="move-number">0{index + 1}</span>
                         <span className="position-badge">{player.meta.slice(0, 2).trim()}</span>
@@ -225,9 +205,9 @@ export default function Home() {
                   </div>
 
                   <div className="outcome-strip">
-                    <span><small>Combined relief</small><strong>+$10</strong></span>
+                    <span><small>Combined relief</small><strong>+${formatMoney(recommendedRelief)}</strong></span>
                     <span className="plus">+</span>
-                    <span><small>Projected cap space</small><strong>${projectedSpace}</strong></span>
+                    <span><small>Projected cap space</small><strong>${formatMoney(projectedSpace)}</strong></span>
                     <button onClick={() => setView("roster")}>Review roster plan <ArrowIcon /></button>
                   </div>
                 </article>
@@ -235,14 +215,14 @@ export default function Home() {
                 <article className="panel draft-panel">
                   <div className="panel-title">
                     <div><p className="eyebrow">On the clock soon</p><h2>Draft outlook</h2></div>
-                    <span className="live-dot">In progress</span>
+                    <span className="live-dot">{humanize(draft.status)}</span>
                   </div>
                   <div className="draft-picks">
                     {draftPicks.slice(0, 3).map((pick) => (
                       <div key={pick.pick}>
-                        <span><strong>{pick.pick}</strong><small>{pick.tier} tier</small></span>
+                        <span><strong>{pick.pick}</strong><small>Overall {pick.overall}</small></span>
                         <span><small>ROOKIE SALARY</small><strong>${pick.salary}</strong></span>
-                        <em>Fits now ✓</em>
+                        <em>{pick.fits_active_now ? "Fits now ✓" : "Cap move needed"}</em>
                       </div>
                     ))}
                   </div>
@@ -267,7 +247,7 @@ export default function Home() {
 
           {view === "roster" && (
             <section className="workspace-view">
-              <div className="view-heading"><div><p className="eyebrow">Roster plan</p><h1>Protect value.<br />Create flexibility.</h1></div><span className="summary-pill">$21 current space</span></div>
+              <div className="view-heading"><div><p className="eyebrow">Roster plan</p><h1>Protect value.<br />Create flexibility.</h1></div><span className="summary-pill">${formatMoney(cap.space)} current space</span></div>
               <div className="table-card">
                 <div className="table-head"><span>Player</span><span>Salary</span><span>VORP</span><span>Recommendation</span></div>
                 {rosterMoves.map((player) => (
@@ -277,6 +257,7 @@ export default function Home() {
                     <span className="recommendation"><em className={player.tone}>{player.status}</em><small>{player.note}</small></span>
                   </div>
                 ))}
+                {rosterMoves.length === 0 && <div className="empty-state">No roster recommendations are available for this snapshot.</div>}
               </div>
               <div className="method-note" id="methodology"><strong>How recommendations work</strong><p>Production is compared with real free agents at the same position, then adjusted for age, development, salary, and dynasty market value. Young assets are protected from becoming ordinary cut recommendations.</p></div>
             </section>
@@ -284,28 +265,34 @@ export default function Home() {
 
           {view === "draft" && (
             <section className="workspace-view">
-              <div className="view-heading"><div><p className="eyebrow">2026 rookie board</p><h1>The board,<br />through your lens.</h1></div><span className="summary-pill">69 ranked · 66 unranked</span></div>
+              <div className="view-heading"><div><p className="eyebrow">{leagueCoordinates.season} rookie board</p><h1>The available board,<br />right now.</h1></div><span className="summary-pill">{selectedBoard?.ranked_candidates ?? 0} ranked · {selectedBoard?.unranked_candidates ?? 0} unranked</span></div>
+              <div className="board-switch" aria-label="Rookie board group">
+                <button className={rookiePool === "offense" ? "active" : ""} onClick={() => setRookiePool("offense")}>Offense <span>{board?.offense.candidates.length ?? 0}</span></button>
+                <button className={rookiePool === "idp" ? "active" : ""} onClick={() => setRookiePool("idp")}>IDP <span>{board?.idp.candidates.length ?? 0}</span></button>
+              </div>
               <div className="board-layout">
                 <div className="table-card board-card">
-                  <div className="table-head"><span>Rank</span><span>Prospect</span><span>Rookie ADP</span><span>Team fit</span></div>
+                  <div className="table-head"><span>Rank</span><span>Available prospect</span><span>Rookie ADP</span><span>Status</span></div>
                   {rookies.map((rookie) => (
-                    <div className="table-row" key={rookie.name}>
-                      <strong className="rank">{String(rookie.rank).padStart(2, "0")}</strong>
-                      <span className="player-cell"><i className="player-dot green">{rookie.name.split(" ").map(part => part[0]).join("")}</i><span><strong>{rookie.name}</strong><small>{rookie.meta}</small></span></span>
-                      <span>{rookie.adp}</span><em className={rookie.rank < 3 ? "fit top" : "fit"}>{rookie.fit}</em>
+                    <div className="table-row" key={rookie.player_id}>
+                      <strong className="rank">{rookie.rank ? String(rookie.rank).padStart(2, "0") : "—"}</strong>
+                      <span className="player-cell"><i className="player-dot green">{initialsFor(rookie.name)}</i><span><strong>{rookie.name}</strong><small>{rookie.position} · {rookie.nfl_team || "FA"}</small></span></span>
+                      <span>{formatADP(rookie)}</span><em className={rookie.rank && rookie.rank <= 3 ? "fit top" : "fit"}>{rookie.valued ? "Ranked" : "Unranked"}</em>
                     </div>
                   ))}
+                  {rookies.length === 0 && <div className="empty-state">No available rookies were returned for this board.</div>}
                 </div>
                 <aside className="pick-stack">
-                  <p className="eyebrow">Your picks</p><h2>11 selections</h2>
-                  {draftPicks.map((pick) => <div key={pick.pick}><strong>{pick.pick}</strong><span>{pick.tier}</span><em>${pick.salary}</em></div>)}
-                  <p className="small-note">All current selections fit the active roster. Total salary if all picks remain active: <strong>$51</strong>.</p>
+                  <p className="eyebrow">Your remaining picks</p><h2>{draft.pick_count} selections</h2>
+                  {draftPicks.map((pick) => <div key={pick.pick}><strong>{pick.pick}</strong><span>Overall {pick.overall}</span><em>${formatMoney(pick.salary)}</em></div>)}
+                  <p className="small-note">Total salary if all remaining picks stay active: <strong>${formatMoney(draft.total_salary_if_all_active)}</strong>.</p>
                 </aside>
               </div>
+              {board?.caution && <div className="method-note rookie-caution"><strong>Board methodology</strong><p>{board.caution}</p></div>}
             </section>
           )}
 
-          <footer><span>Front Office · 2026</span><span>Read-only league intelligence</span><span>Model snapshot · Aug 16</span></footer>
+          <footer><span>Front Office · {leagueCoordinates.season}</span><span>Read-only league intelligence</span><span>Model snapshot · {formatDate(analysis?.snapshot_date)}</span></footer>
         </div>
       </main>
     </div>
@@ -345,4 +332,63 @@ function formatTimestamp(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+type RosterMove = {
+  name: string;
+  meta: string;
+  salary: number;
+  vorp: string;
+  status: string;
+  note: string;
+  tone: string;
+};
+
+function buildRosterMoves(analysis: LiveAnalysis | null): RosterMove[] {
+  if (!analysis?.drop_evaluation.available) return [];
+  return [
+    ...(analysis.drop_evaluation.drop_candidates ?? []).map((candidate) => rosterMove(candidate, "Drop candidate", "red")),
+    ...(analysis.drop_evaluation.trade_first ?? []).map((candidate) => rosterMove(candidate, "Trade first", "blue")),
+    ...(analysis.drop_evaluation.hold_develop ?? []).map((candidate) => rosterMove(candidate, "Hold / develop", "amber")),
+  ];
+}
+
+function rosterMove(candidate: DropCandidate, status: string, tone: string): RosterMove {
+  const vorp = candidate.dynasty_adjusted_vorp ?? candidate.value_over_replacement;
+  return {
+    name: candidate.name,
+    meta: `${candidate.position} · age ${candidate.age || "—"}`,
+    salary: candidate.salary_cap_relief,
+    vorp: vorp === undefined ? "—" : formatSigned(vorp),
+    status,
+    note: candidate.disposition_reason || "Model recommendation",
+    tone,
+  };
+}
+
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatSigned(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function formatDate(value?: string): string {
+  if (!value) return "pending";
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+function formatADP(rookie: RookieAssessment): string {
+  return rookie.rookie_adp ? rookie.rookie_adp.toFixed(2) : "—";
+}
+
+function initialsFor(name: string): string {
+  return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function humanize(value: string): string {
+  return value.replaceAll("_", " ");
 }
