@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { latestSnapshot } from "./api-client";
+import { useAuth } from "./auth";
 
 type View = "overview" | "roster" | "draft";
 
@@ -73,16 +75,42 @@ function ArrowIcon() {
 }
 
 export default function Home() {
+  const auth = useAuth();
   const [view, setView] = useState<View>("overview");
   const [capTarget, setCapTarget] = useState(10);
-  const [refreshed, setRefreshed] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<"idle" | "loading" | "current" | "error">("idle");
+  const [syncMessage, setSyncMessage] = useState("Authenticated API ready");
 
   const projectedSpace = useMemo(() => 21 + Math.min(capTarget, 10), [capTarget]);
 
-  function refreshSnapshot() {
-    setRefreshed(true);
-    window.setTimeout(() => setRefreshed(false), 2200);
+  async function refreshSnapshot() {
+    setSyncStatus("loading");
+    setSyncMessage("Reading latest snapshot…");
+    try {
+      const response = await latestSnapshot(auth.authorizedFetch);
+      const observedAt = response.snapshot?.observed_at;
+      setSyncMessage(observedAt ? `Observed ${formatTimestamp(observedAt)}` : "Latest snapshot loaded");
+      setSyncStatus("current");
+    } catch (cause) {
+      setSyncMessage(cause instanceof Error ? cause.message : "Snapshot request failed");
+      setSyncStatus("error");
+    }
   }
+
+  if (!auth.ready) return <AuthScreen title="Opening Front Office…" />;
+  if (!auth.user) {
+    return (
+      <AuthScreen
+        title="Your dynasty decision room."
+        message={auth.error ?? "Sign in through Authentik to access league data."}
+        actionLabel="Sign in"
+        onAction={() => void auth.signIn("/")}
+      />
+    );
+  }
+
+  const displayName = auth.user.profile.name || auth.user.profile.preferred_username || auth.user.profile.email || "Signed in";
+  const initials = displayName.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 
   return (
     <div className="app-shell">
@@ -111,19 +139,19 @@ export default function Home() {
           <a href="#methodology"><span className="nav-icon">∿</span> Methodology</a>
         </nav>
 
-        <div className="sync-card">
+        <div className={`sync-card ${syncStatus === "error" ? "has-error" : ""}`}>
           <span className="signal"><i /></span>
           <div>
-            <strong>{refreshed ? "Snapshot refreshed" : "Data is current"}</strong>
-            <small>{refreshed ? "Just now" : "Aug 16 · 4:54 PM"}</small>
+            <strong>{syncStatus === "loading" ? "Loading snapshot" : syncStatus === "error" ? "API request failed" : "Data connection"}</strong>
+            <small>{syncMessage}</small>
           </div>
-          <button onClick={refreshSnapshot} aria-label="Refresh league snapshot" title="Refresh snapshot">↻</button>
+          <button disabled={syncStatus === "loading"} onClick={() => void refreshSnapshot()} aria-label="Refresh league snapshot" title="Refresh snapshot">↻</button>
         </div>
 
         <div className="profile">
-          <span className="avatar">TM</span>
-          <span><strong>Tyler McLean</strong><small>Commissioner</small></span>
-          <button aria-label="Open profile menu">•••</button>
+          <span className="avatar">{initials}</span>
+          <span><strong>{displayName}</strong><small>Authenticated</small></span>
+          <button onClick={() => void auth.signOut()} aria-label="Sign out" title="Sign out">↪</button>
         </div>
       </aside>
 
@@ -282,4 +310,39 @@ export default function Home() {
       </main>
     </div>
   );
+}
+
+function AuthScreen({
+  title,
+  message,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  message?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <main className="auth-screen">
+      <div className="auth-card">
+        <span className="auth-mark">FD</span>
+        <p className="eyebrow">Front Office</p>
+        <h1>{title}</h1>
+        {message && <p>{message}</p>}
+        {actionLabel && onAction && <button onClick={onAction}>{actionLabel} <ArrowIcon /></button>}
+      </div>
+    </main>
+  );
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }

@@ -11,6 +11,22 @@ npm run dev
 
 Open `http://localhost:3000`.
 
+Copy `.env.example` to `.env.local` to override the Authentik issuer, public
+client ID, API Gateway URL, or league coordinates. The Authentik provider must
+allow these redirect URIs:
+
+```text
+http://localhost:3000/auth/callback
+https://dynasty-ff.749rmw.com/auth/callback
+```
+
+The browser uses Authorization Code with PKCE. It does not use or contain a
+client secret. Access tokens are attached only to requests made to the
+configured API Gateway URL. The app serves a same-origin discovery proxy at
+`/api/oidc-metadata` because Authentik's discovery document does not include
+browser CORS headers; token exchange still happens directly between the browser
+and Authentik.
+
 ## Self-hosting
 
 Build and run the production container:
@@ -23,7 +39,10 @@ The app listens on port `3000` and exposes `GET /api/health` for container and K
 
 ## Current boundary
 
-The UI currently uses a representative snapshot derived from the backend's `analyze` response. The next integration step is to expose that Lambda action through an authenticated HTTP endpoint and replace the local view model with a typed read-only client. No commissioner mutations belong in this frontend.
+The UI currently presents a representative analysis view while its refresh
+control reads the latest real snapshot through the authenticated HTTP API. The
+typed client also exposes the analysis request for the next live-data rendering
+slice. No commissioner mutations belong in this frontend.
 
 ## Validation
 

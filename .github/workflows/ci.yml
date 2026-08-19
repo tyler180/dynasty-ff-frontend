@@ -1,0 +1,25 @@
+name: Frontend CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    uses: tyler180/github-workflows/.github/workflows/frontend-verify.yml@v0.0.1
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: verify
+    uses: tyler180/github-workflows/.github/workflows/frontend-publish.yml@v0.0.1
+    permissions:
+      contents: read
+      packages: write
+

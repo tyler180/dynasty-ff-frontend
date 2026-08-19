@@ -30,3 +30,24 @@ test("is configured for portable self-hosting", async () => {
   assert.match(compose, /3000:3000/);
   await assert.rejects(access(new URL(".openai/hosting.json", root)));
 });
+
+test("uses Authentik PKCE and an authenticated API client", async () => {
+  const [auth, callback, metadata, client, compose] = await Promise.all([
+    readFile(new URL("app/auth.tsx", root), "utf8"),
+    readFile(new URL("app/auth/callback/page.tsx", root), "utf8"),
+    readFile(new URL("app/api/oidc-metadata/route.ts", root), "utf8"),
+    readFile(new URL("app/api-client.ts", root), "utf8"),
+    readFile(new URL("compose.yaml", root), "utf8"),
+  ]);
+
+  assert.match(auth, /response_type:\s*["']code["']/);
+  assert.match(auth, /Bearer \$\{currentUser\.access_token\}/);
+  assert.doesNotMatch(auth + client + compose, /client_secret/i);
+  assert.match(callback, /completeSignIn/);
+  assert.match(auth, /signinRedirectCallback/);
+  assert.match(auth, /\/api\/oidc-metadata/);
+  assert.match(metadata, /\.well-known\/openid-configuration/);
+  assert.match(client, /\/v1\/snapshots\/latest/);
+  assert.match(client, /\/v1\/analyze/);
+  assert.match(compose, /NEXT_PUBLIC_API_BASE_URL/);
+});

@@ -2,6 +2,13 @@ services:
   frontend:
     build:
       context: .
+      args:
+        NEXT_PUBLIC_OIDC_ISSUER: ${NEXT_PUBLIC_OIDC_ISSUER:-https://auth.k8s.749rmw.com/application/o/dynasty-ff/}
+        NEXT_PUBLIC_OIDC_CLIENT_ID: ${NEXT_PUBLIC_OIDC_CLIENT_ID:-dynasty-ff-frontend}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-https://5y8s0du210.execute-api.us-west-2.amazonaws.com}
+        NEXT_PUBLIC_LEAGUE_SEASON: ${NEXT_PUBLIC_LEAGUE_SEASON:-2026}
+        NEXT_PUBLIC_LEAGUE_ID: ${NEXT_PUBLIC_LEAGUE_ID:-79286}
+        NEXT_PUBLIC_FRANCHISE_ID: ${NEXT_PUBLIC_FRANCHISE_ID:-0005}
     image: dynasty-ff-frontend:local
     restart: unless-stopped
     ports:
