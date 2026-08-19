@@ -16,7 +16,7 @@ jobs:
     uses: tyler180/github-workflows/.github/workflows/frontend-verify.yml@v0.0.1
 
   publish:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: verify
     uses: tyler180/github-workflows/.github/workflows/frontend-publish.yml@v0.0.1
     permissions:
