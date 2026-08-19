@@ -98,7 +98,7 @@ export default function Home() {
   const overallBoard = buildOverallRookieBoard(board);
   const selectedBoard = rookiePool === "overall" ? overallBoard : board?.[rookiePool];
   const rookies = selectedBoard?.candidates ?? [];
-  const draftPicks = draft.picks;
+  const draftPicks = draft.picks ?? [];
   const rosterMoves = buildRosterMoves(analysis);
   const priorityMoves = analysis?.drop_evaluation.recommended_cuts ?? [];
   const priorityRosterMoves = priorityMoves.map((candidate) => rosterMove(candidate, "Drop candidate", "red"));
@@ -286,9 +286,9 @@ export default function Home() {
             <section className="workspace-view">
               <div className="view-heading"><div><p className="eyebrow">{leagueCoordinates.season} rookie board</p><h1>The available board,<br />right now.</h1></div><span className="summary-pill">{selectedBoard?.ranked_candidates ?? 0} ranked · {selectedBoard?.unranked_candidates ?? 0} unranked</span></div>
               <div className="board-switch" aria-label="Rookie board group">
-                <button className={rookiePool === "overall" ? "active" : ""} onClick={() => setRookiePool("overall")}>Overall <span>{overallBoard?.candidates.length ?? 0}</span></button>
-                <button className={rookiePool === "offense" ? "active" : ""} onClick={() => setRookiePool("offense")}>Offense <span>{board?.offense.candidates.length ?? 0}</span></button>
-                <button className={rookiePool === "idp" ? "active" : ""} onClick={() => setRookiePool("idp")}>IDP <span>{board?.idp.candidates.length ?? 0}</span></button>
+                <button className={rookiePool === "overall" ? "active" : ""} onClick={() => setRookiePool("overall")}>Overall <span>{overallBoard?.candidates?.length ?? 0}</span></button>
+                <button className={rookiePool === "offense" ? "active" : ""} onClick={() => setRookiePool("offense")}>Offense <span>{board?.offense.candidates?.length ?? 0}</span></button>
+                <button className={rookiePool === "idp" ? "active" : ""} onClick={() => setRookiePool("idp")}>IDP <span>{board?.idp.candidates?.length ?? 0}</span></button>
               </div>
               <div className="board-layout">
                 <div className="table-card board-card">
@@ -322,8 +322,8 @@ export default function Home() {
 function buildOverallRookieBoard(board: LiveAnalysis["rookie_board"] | undefined): RookieBoardPool | undefined {
   if (!board) return undefined;
   const candidates = [
-    ...board.offense.candidates,
-    ...board.idp.candidates,
+    ...(board.offense.candidates ?? []),
+    ...(board.idp.candidates ?? []),
     ...(board.other?.candidates ?? []),
   ].map((candidate): RookieAssessment => ({ ...candidate, rank: undefined, valued: Boolean(candidate.rookie_adp && candidate.rookie_adp > 0) }));
 

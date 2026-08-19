@@ -42,7 +42,7 @@ export type RookieBoardPool = {
   source?: string;
   ranked_candidates: number;
   unranked_candidates: number;
-  candidates: RookieAssessment[];
+  candidates: RookieAssessment[] | null;
 };
 
 export type DropCandidate = {
@@ -75,7 +75,7 @@ export type LiveAnalysis = {
       salary: number;
       fits_active_now: boolean;
       fits_taxi_now: boolean;
-    }>;
+    }> | null;
     pick_count: number;
     total_salary_if_all_active: number;
   };
