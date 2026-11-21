@@ -1,4 +1,4 @@
-# Front Office
+# Dynasty FF
 
 The frontend for the dynasty-football analysis platform. The first slice presents Team McLean's verified 2026 league snapshot as a decision dashboard with an interactive cap scenario, replacement-aware roster plan, and rookie board.
 
