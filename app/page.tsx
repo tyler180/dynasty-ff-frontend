@@ -60,9 +60,14 @@ export default function Home() {
   const hasRequested = useRef(false);
   // The snapshot sync reads the target when it finishes, not when it started.
   const latestCapTarget = useRef(capTarget);
+  // Likewise the open tab and age filter, which can change while a sync runs.
+  const latestView = useRef(view);
+  const latestMaxAge = useRef(maxAge);
   useEffect(() => {
     latestCapTarget.current = capTarget;
-  }, [capTarget]);
+    latestView.current = view;
+    latestMaxAge.current = maxAge;
+  }, [capTarget, view, maxAge]);
 
   const loadAnalysis = useCallback(async (target: number) => {
     // Ignore responses that arrive after a newer request was made.
@@ -109,8 +114,8 @@ export default function Home() {
       if (mode === "draft") {
         setDraftMode(true);
         setView("draft");
-      } else if (view === "free-agents") {
-        void loadTrends(maxAge);
+      } else if (latestView.current === "free-agents") {
+        void loadTrends(latestMaxAge.current);
       } else {
         // Free agents change with the snapshot; reload them the next time the tab opens.
         setTrends({ status: "idle" });
@@ -119,7 +124,7 @@ export default function Home() {
       setSyncMessage(cause instanceof Error ? cause.message : "Snapshot sync failed");
       setSyncStatus("error");
     }
-  }, [auth.authorizedFetch, loadAnalysis, loadTrends, maxAge, snapshotObservedAt, view]);
+  }, [auth.authorizedFetch, loadAnalysis, loadTrends, snapshotObservedAt]);
 
   // Load on sign-in, then re-run whenever the cap relief target settles.
   useEffect(() => {
