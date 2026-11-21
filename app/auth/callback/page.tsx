@@ -20,11 +20,10 @@ export default function AuthCallback() {
   return (
     <main className="auth-screen">
       <div className="auth-card">
-        <span className="auth-mark">FD</span>
-        <p className="eyebrow">Front Office</p>
+        <p className="wordmark">Dynasty FF</p>
         <h1>{error ? "Sign-in failed" : "Finishing sign-in…"}</h1>
         {error && <p className="auth-error">{error}</p>}
-        {error && <Link href="/">Return to Front Office</Link>}
+        {error && <Link href="/">Return to Dynasty FF</Link>}
       </div>
     </main>
   );

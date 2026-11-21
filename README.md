@@ -1,4 +1,4 @@
-# Front Office
+# Dynasty FF
 
 The frontend for the dynasty-football analysis platform. The first slice presents Team McLean's verified 2026 league snapshot as a decision dashboard with an interactive cap scenario, replacement-aware roster plan, and rookie board.
 
@@ -17,7 +17,7 @@ allow these redirect URIs:
 
 ```text
 http://localhost:3000/auth/callback
-https://dynasty-ff.749rmw.com/auth/callback
+https://dynasty-ff.k8s.749rmw.com/auth/callback
 ```
 
 The browser uses Authorization Code with PKCE. It does not use or contain a
@@ -37,12 +37,13 @@ docker compose up --build -d
 
 The app listens on port `3000` and exposes `GET /api/health` for container and Kubernetes probes. The image uses Next.js standalone output and runs as an unprivileged user.
 
+In production it runs in the Talos cluster at https://dynasty-ff.k8s.749rmw.com (LAN only), deployed by Argo CD from `applications/dynasty-ff` in `tyler180/talos-gitops`. Every push to `main` publishes `ghcr.io/tyler180/dynasty-ff-frontend:sha-<commit>`; release it by bumping the pinned digest there.
+
 ## Current boundary
 
-The UI currently presents a representative analysis view while its refresh
-control reads the latest real snapshot through the authenticated HTTP API. The
-typed client also exposes the analysis request for the next live-data rendering
-slice. No commissioner mutations belong in this frontend.
+The UI renders the live analysis of the latest MFL snapshot through the
+authenticated HTTP API, and can request a fresh snapshot. It is read-only: no
+commissioner mutations belong in this frontend.
 
 ## Validation
 

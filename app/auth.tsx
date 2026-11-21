@@ -36,7 +36,9 @@ function manager(): UserManager {
     redirect_uri: `${window.location.origin}/auth/callback`,
     post_logout_redirect_uri: window.location.origin,
     response_type: "code",
-    scope: "openid profile email",
+    // offline_access returns a refresh token, so automaticSilentRenew can keep the
+    // short-lived (5 minute) Authentik access token fresh without a page reload.
+    scope: "openid profile email offline_access",
     loadUserInfo: false,
     automaticSilentRenew: true,
     monitorSession: false,
@@ -144,9 +146,22 @@ export function useAuth(): AuthContextValue {
   return value;
 }
 
-export async function completeSignIn(): Promise<string> {
-  const signedInUser = await manager().signinRedirectCallback();
-  return typeof signedInUser.state === "string" ? safeReturnTo(signedInUser.state) : "/";
+// An authorization code can be exchanged only once. React may run the callback
+// page's effect twice (Strict Mode in development), so share one exchange per
+// callback URL instead of failing the second attempt with invalid_grant.
+let pendingSignIn: { url: string; result: Promise<string> } | undefined;
+
+export function completeSignIn(): Promise<string> {
+  const url = window.location.href;
+  if (pendingSignIn?.url !== url) {
+    pendingSignIn = {
+      url,
+      result: manager()
+        .signinRedirectCallback(url)
+        .then((signedInUser) => (typeof signedInUser.state === "string" ? safeReturnTo(signedInUser.state) : "/")),
+    };
+  }
+  return pendingSignIn.result;
 }
 
 function safeReturnTo(value: string): string {

@@ -10,11 +10,12 @@ test("keeps the dashboard product-specific", async () => {
     readFile(new URL("app/layout.tsx", root), "utf8"),
   ]);
 
-  assert.match(page, /Front Office/);
+  assert.match(page, /Dynasty FF/);
   assert.match(page, /Roster plan/);
   assert.match(page, /Rookie board/);
   assert.match(page, /Cap relief target/);
-  assert.match(layout, /Dynasty Intelligence/);
+  assert.match(layout, /Dynasty FF/);
+  assert.doesNotMatch(page + layout, /Front Office/);
   assert.doesNotMatch(page, /codex-preview|SkeletonPreview/);
 });
 
