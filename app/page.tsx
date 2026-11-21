@@ -373,7 +373,7 @@ function RookieBoard({
               {picks.map((pick) => (
                 <tr key={pick.pick}>
                   <td className="pick">{pick.pick}</td>
-                  <td className="player-meta">overall {pick.overall}</td>
+                  <td><span className="player-meta">overall {pick.overall}</span></td>
                   <td className="num">${formatMoney(pick.salary)}</td>
                 </tr>
               ))}
