@@ -283,6 +283,8 @@ button, input { font: inherit; color: inherit; }
 .tag.trade { color: var(--trade); }
 .tag.hold { color: var(--hold); }
 
+.sparkline { display: block; color: var(--accent); }
+
 .segmented { display: flex; gap: 2px; }
 .segmented button {
   border: 0;

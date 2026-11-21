@@ -11,8 +11,10 @@ test("keeps the dashboard product-specific", async () => {
   ]);
 
   assert.match(page, /Dynasty FF/);
-  assert.match(page, /Roster plan/);
+  assert.match(page, /Cut \/ keep/);
+  assert.match(page, /Free agents/);
   assert.match(page, /Rookie board/);
+  assert.match(page, /Draft day/);
   assert.match(page, /Cap relief target/);
   assert.match(layout, /Dynasty FF/);
   assert.doesNotMatch(page + layout, /Front Office/);
@@ -51,6 +53,7 @@ test("uses Authentik PKCE and an authenticated API client", async () => {
   assert.match(client, /\/v1\/snapshots\/latest/);
   assert.match(client, /\/v1\/analyze/);
   assert.match(client, /\/v1\/snapshots\/sync/);
+  assert.match(client, /\/v1\/free-agents\/defensive-trends/);
   assert.match(compose, /NEXT_PUBLIC_API_BASE_URL/);
 });
 
@@ -65,7 +68,7 @@ test("renders the live analysis instead of the original rookie mock", async () =
   assert.match(page, /rookiePool === ["']offense["']/);
   assert.match(page, /rookiePool === ["']idp["']/);
   assert.match(page, /rookiePool === ["']overall["']/);
-  assert.match(page, /New snapshot/);
+  assert.match(page, /Refresh/);
   assert.match(page, /syncSnapshot/);
   assert.match(page, /waitForNewSnapshot/);
   assert.match(page, /draft\.picks \?\? \[\]/);

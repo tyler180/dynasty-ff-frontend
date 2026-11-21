@@ -99,6 +99,66 @@ export type LiveAnalysis = {
   warnings: string[];
 };
 
+export type UsageWindow = {
+  games: number;
+  defense_snaps: number;
+  team_defense_snaps: number;
+  defense_snap_share: number;
+};
+
+export type WeeklyUsage = {
+  game_id: string;
+  season: number;
+  week: number;
+  defense_snap_share: number;
+};
+
+export type DefensiveTrend = {
+  player_id: string;
+  name: string;
+  position?: string;
+  position_group: string;
+  age: number | null;
+  signal: "rising" | "falling" | "stable" | "volatile" | "insufficient_data";
+  confidence: string;
+  baseline: UsageWindow;
+  recent: UsageWindow;
+  change_percentage_points: number;
+  confirming_games: number;
+  latest_season?: number;
+  latest_week?: number;
+  weekly: WeeklyUsage[];
+  reason: string;
+};
+
+export type DefensiveTrendsResponse = {
+  action: "top_defensive_free_agent_trends";
+  status: "ok";
+  defensive_free_agent_trends?: {
+    league_season: number;
+    snap_seasons: number[];
+    available_defensive_players: number;
+    players_with_snap_data: number;
+    excluded_by_age: number;
+    config: { recent_games: number; minimum_confirming_games: number; max_age?: number };
+    trends: DefensiveTrend[] | null;
+  };
+};
+
+// maxAge keeps players younger than it; 0 means no age filter.
+export async function defensiveFreeAgentTrends(
+  fetcher: AuthorizedFetch,
+  maxAge: number,
+): Promise<DefensiveTrendsResponse> {
+  const query = new URLSearchParams({
+    season: String(leagueCoordinates.season),
+    league_id: leagueCoordinates.leagueId,
+    limit: "25",
+  });
+  if (maxAge > 0) query.set("max_age", String(maxAge));
+  return request<DefensiveTrendsResponse>(fetcher, `/v1/free-agents/defensive-trends?${query}`);
+}
+
 export type AnalysisResponse = {
   action: "analyze";
   status: "ok";
@@ -118,7 +178,11 @@ export async function latestSnapshot(fetcher: AuthorizedFetch): Promise<Snapshot
   return request<SnapshotResponse>(fetcher, `/v1/snapshots/latest?${query}`);
 }
 
-export async function syncSnapshot(fetcher: AuthorizedFetch): Promise<SnapshotSyncResponse> {
+// "team" is the full refresh (roster, cap, free agents, FantasyPros values).
+// "draft" is the quick draft-day refresh with live picks and rookie ADP.
+export type SyncMode = "team" | "draft";
+
+export async function syncSnapshot(fetcher: AuthorizedFetch, mode: SyncMode): Promise<SnapshotSyncResponse> {
   return request<SnapshotSyncResponse>(fetcher, "/v1/snapshots/sync", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -126,14 +190,16 @@ export async function syncSnapshot(fetcher: AuthorizedFetch): Promise<SnapshotSy
       season: leagueCoordinates.season,
       league_id: leagueCoordinates.leagueId,
       franchise_id: leagueCoordinates.franchiseId,
+      mode,
     }),
   });
 }
 
+// A team refresh runs for up to five minutes in the worker; wait a little longer.
 export async function waitForNewSnapshot(
   fetcher: AuthorizedFetch,
   previousObservedAt: string | undefined,
-  timeoutMilliseconds = 150_000,
+  timeoutMilliseconds = 330_000,
 ): Promise<string> {
   const deadline = Date.now() + timeoutMilliseconds;
   let lastError: unknown;
