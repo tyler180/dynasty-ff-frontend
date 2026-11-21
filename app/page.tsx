@@ -4,23 +4,40 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "./auth";
 import {
   analyzeSnapshot,
+  defensiveFreeAgentTrends,
   leagueCoordinates,
   syncSnapshot,
   waitForNewSnapshot,
+  type DefensiveTrend,
+  type DefensiveTrendsResponse,
   type DropCandidate,
   type LiveAnalysis,
   type RookieAssessment,
   type RookieBoardPool,
+  type SyncMode,
 } from "./api-client";
 
-type View = "overview" | "roster" | "draft";
+type View = "overview" | "roster" | "free-agents" | "draft";
 type RookiePool = "overall" | "offense" | "idp";
 type SyncStatus = "idle" | "loading" | "syncing" | "current" | "error";
+type TrendsState =
+  | { status: "idle" | "loading" }
+  | { status: "ready"; data: NonNullable<DefensiveTrendsResponse["defensive_free_agent_trends"]> }
+  | { status: "error"; message: string };
 
-const views: Array<{ id: View; label: string }> = [
+// Team management comes first. The rookie board appears only after a draft-day refresh.
+const teamViews: Array<{ id: View; label: string }> = [
   { id: "overview", label: "Overview" },
-  { id: "roster", label: "Roster plan" },
-  { id: "draft", label: "Rookie board" },
+  { id: "roster", label: "Cut / keep" },
+  { id: "free-agents", label: "Free agents" },
+];
+const draftView: { id: View; label: string } = { id: "draft", label: "Rookie board" };
+
+// Age filters for the free-agent view; 0 is no filter.
+const ageFilters = [
+  { value: 26, label: "Under 26" },
+  { value: 28, label: "Under 28" },
+  { value: 0, label: "Any age" },
 ];
 
 // Wait for the slider to settle before asking the model for a new plan.
@@ -35,13 +52,22 @@ export default function Home() {
   const [rookiePool, setRookiePool] = useState<RookiePool>("overall");
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [syncMessage, setSyncMessage] = useState("");
+  const [draftMode, setDraftMode] = useState(false);
+  const [maxAge, setMaxAge] = useState(28);
+  const [trends, setTrends] = useState<TrendsState>({ status: "idle" });
   const latestRequest = useRef(0);
+  const latestTrendsRequest = useRef(0);
   const hasRequested = useRef(false);
   // The snapshot sync reads the target when it finishes, not when it started.
   const latestCapTarget = useRef(capTarget);
+  // Likewise the open tab and age filter, which can change while a sync runs.
+  const latestView = useRef(view);
+  const latestMaxAge = useRef(maxAge);
   useEffect(() => {
     latestCapTarget.current = capTarget;
-  }, [capTarget]);
+    latestView.current = view;
+    latestMaxAge.current = maxAge;
+  }, [capTarget, view, maxAge]);
 
   const loadAnalysis = useCallback(async (target: number) => {
     // Ignore responses that arrive after a newer request was made.
@@ -63,19 +89,42 @@ export default function Home() {
     }
   }, [auth.authorizedFetch]);
 
-  const createFreshSnapshot = useCallback(async () => {
-    setSyncStatus("syncing");
-    setSyncMessage("Fetching live MFL data…");
+  const loadTrends = useCallback(async (age: number) => {
+    const requestId = ++latestTrendsRequest.current;
+    setTrends({ status: "loading" });
     try {
-      await syncSnapshot(auth.authorizedFetch);
+      const response = await defensiveFreeAgentTrends(auth.authorizedFetch, age);
+      if (requestId !== latestTrendsRequest.current) return;
+      if (!response.defensive_free_agent_trends) throw new Error("Free-agent trend response was empty");
+      setTrends({ status: "ready", data: response.defensive_free_agent_trends });
+    } catch (cause) {
+      if (requestId !== latestTrendsRequest.current) return;
+      setTrends({ status: "error", message: cause instanceof Error ? cause.message : "Free-agent trend request failed" });
+    }
+  }, [auth.authorizedFetch]);
+
+  const createFreshSnapshot = useCallback(async (mode: SyncMode) => {
+    setSyncStatus("syncing");
+    setSyncMessage(mode === "draft" ? "Fetching live draft data…" : "Refreshing from MFL…");
+    try {
+      await syncSnapshot(auth.authorizedFetch, mode);
       setSyncMessage("Waiting for the new snapshot…");
       await waitForNewSnapshot(auth.authorizedFetch, snapshotObservedAt);
       await loadAnalysis(latestCapTarget.current);
+      if (mode === "draft") {
+        setDraftMode(true);
+        setView("draft");
+      } else if (latestView.current === "free-agents") {
+        void loadTrends(latestMaxAge.current);
+      } else {
+        // Free agents change with the snapshot; reload them the next time the tab opens.
+        setTrends({ status: "idle" });
+      }
     } catch (cause) {
       setSyncMessage(cause instanceof Error ? cause.message : "Snapshot sync failed");
       setSyncStatus("error");
     }
-  }, [auth.authorizedFetch, loadAnalysis, snapshotObservedAt]);
+  }, [auth.authorizedFetch, loadAnalysis, loadTrends, snapshotObservedAt]);
 
   // Load on sign-in, then re-run whenever the cap relief target settles.
   useEffect(() => {
@@ -85,6 +134,17 @@ export default function Home() {
     const timeout = window.setTimeout(() => void loadAnalysis(capTarget), delay);
     return () => window.clearTimeout(timeout);
   }, [auth.ready, auth.user, capTarget, loadAnalysis]);
+
+  // Load free-agent trends the first time the tab opens and after each refresh.
+  const selectView = (next: View) => {
+    setView(next);
+    if (next === "free-agents" && trends.status === "idle") void loadTrends(maxAge);
+  };
+
+  const changeMaxAge = (age: number) => {
+    setMaxAge(age);
+    void loadTrends(age);
+  };
 
   if (!auth.ready) return <AuthScreen title="Opening Dynasty FF…" />;
   if (!auth.user) {
@@ -123,14 +183,15 @@ export default function Home() {
         <div className="masthead-actions">
           <span className={`status ${syncStatus}`} role="status" aria-live="polite">{syncMessage}</span>
           <button className="quiet-button" disabled={busy} onClick={() => void loadAnalysis(capTarget)} title="Reanalyze the current snapshot">Reanalyze</button>
-          <button className="button" disabled={busy} onClick={() => void createFreshSnapshot()} title="Pull fresh data from MFL">New snapshot</button>
+          <button className="quiet-button" disabled={busy} onClick={() => void createFreshSnapshot("draft")} title="Quick refresh with live draft picks and rookie ADP">Draft day</button>
+          <button className="button" disabled={busy} onClick={() => void createFreshSnapshot("team")} title="Pull fresh roster, cap and free-agent data from MFL">Refresh</button>
           <button className="quiet-button" onClick={() => void auth.signOut()} title={`Signed in as ${displayName}`}>Sign out</button>
         </div>
       </header>
 
       <nav className="tabs" aria-label="Sections">
-        {views.map((item) => (
-          <button key={item.id} className={view === item.id ? "tab active" : "tab"} aria-current={view === item.id ? "page" : undefined} onClick={() => setView(item.id)}>
+        {(draftMode ? [...teamViews, draftView] : teamViews).map((item) => (
+          <button key={item.id} className={view === item.id ? "tab active" : "tab"} aria-current={view === item.id ? "page" : undefined} onClick={() => selectView(item.id)}>
             {item.label}
           </button>
         ))}
@@ -170,6 +231,10 @@ export default function Home() {
 
         {view === "roster" && <RosterPlan analysis={analysis} />}
 
+        {view === "free-agents" && (
+          <FreeAgents state={trends} maxAge={maxAge} onMaxAgeChange={changeMaxAge} onRetry={() => void loadTrends(maxAge)} />
+        )}
+
         {view === "draft" && (
           <RookieBoard
             board={board}
@@ -183,7 +248,7 @@ export default function Home() {
       </main>
 
       <footer className="colophon">
-        <span>Dynasty FF · read-only league intelligence</span>
+        <span>Dynasty FF · read-only team management</span>
         <span>Model snapshot {formatDate(analysis.snapshot_date)}</span>
       </footer>
     </div>
@@ -391,6 +456,98 @@ function RookieBoard({
       </aside>
     </div>
   );
+}
+
+function FreeAgents({
+  state,
+  maxAge,
+  onMaxAgeChange,
+  onRetry,
+}: {
+  state: TrendsState;
+  maxAge: number;
+  onMaxAgeChange: (age: number) => void;
+  onRetry: () => void;
+}) {
+  const data = state.status === "ready" ? state.data : undefined;
+  const rising = (data?.trends ?? []).filter((trend) => trend.signal === "rising");
+  const latest = rising.find((trend) => trend.latest_week);
+
+  return (
+    <section className={state.status === "loading" ? "section is-updating" : "section"}>
+      <SectionHeading title="Rising defenders">
+        <div className="segmented" role="group" aria-label="Age filter">
+          {ageFilters.map((filter) => (
+            <button key={filter.value} className={maxAge === filter.value ? "active" : ""} aria-pressed={maxAge === filter.value} onClick={() => onMaxAgeChange(filter.value)}>
+              {filter.label}
+            </button>
+          ))}
+        </div>
+      </SectionHeading>
+      <p className="section-meta">
+        {data
+          ? `Available defensive free agents whose snap share rose over their last ${data.config.recent_games} games · ${data.available_defensive_players} free agents checked${latest ? ` · through ${latest.latest_season} week ${latest.latest_week}` : ""}`
+          : "Available defensive free agents whose snap share is rising"}
+      </p>
+
+      {state.status === "error" && (
+        <p className="empty">{state.message} <button className="quiet-button" onClick={onRetry}>Try again</button></p>
+      )}
+      {(state.status === "idle" || (state.status === "loading" && !data)) && <p className="empty">Loading free agents…</p>}
+      {data && rising.length === 0 && <p className="empty">No available defenders are trending up right now.</p>}
+      {rising.length > 0 && (
+        <table className="table">
+          <thead>
+            <tr>
+              <th scope="col">Player</th>
+              <th scope="col" className="num">Snap share</th>
+              <th scope="col" className="num">Change</th>
+              <th scope="col" className="num wide">Confirmed</th>
+              <th scope="col" className="wide">Recent games</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rising.map((trend) => (
+              <tr key={trend.player_id}>
+                <td>
+                  <span className="player">{trend.name}</span>
+                  <span className="player-meta">{trend.position || trend.position_group.toUpperCase()} · {trend.age === null ? "age unknown" : `age ${trend.age}`}</span>
+                </td>
+                <td className="num">{sharePercent(trend.baseline.defense_snap_share)} → {sharePercent(trend.recent.defense_snap_share)}</td>
+                <td className="num">+{Math.round(trend.change_percentage_points)} pts</td>
+                <td className="num wide">{trend.confirming_games} of {trend.recent.games}</td>
+                <td className="wide"><Sparkline trend={trend} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="note">
+        Compares each player&apos;s share of team defensive snaps in his last three games with the three before, which can reach back into last season. A rise counts when it is at least 10 points and at least two of the recent games confirm it.
+      </p>
+    </section>
+  );
+}
+
+// Weekly defensive snap share for the last eight games, oldest first.
+function Sparkline({ trend }: { trend: DefensiveTrend }) {
+  const games = trend.weekly.slice(-8);
+  if (games.length < 2) return <span className="player-meta">—</span>;
+  const width = 96;
+  const height = 24;
+  const step = width / (games.length - 1);
+  const points = games.map((game, index) => `${(index * step).toFixed(1)},${(height - game.defense_snap_share * height).toFixed(1)}`).join(" ");
+  const label = games.map((game) => `${game.season} week ${game.week}: ${sharePercent(game.defense_snap_share)}`).join(", ");
+  return (
+    <svg className="sparkline" viewBox={`-2 -2 ${width + 4} ${height + 4}`} width={width + 4} height={height + 4} role="img" aria-label={label}>
+      <title>{label}</title>
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function sharePercent(share: number): string {
+  return `${Math.round(share * 100)}%`;
 }
 
 function PlayerName({ candidate }: { candidate: DropCandidate }) {
