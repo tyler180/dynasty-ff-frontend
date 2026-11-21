@@ -37,6 +37,11 @@ export default function Home() {
   const [syncMessage, setSyncMessage] = useState("");
   const latestRequest = useRef(0);
   const hasRequested = useRef(false);
+  // The snapshot sync reads the target when it finishes, not when it started.
+  const latestCapTarget = useRef(capTarget);
+  useEffect(() => {
+    latestCapTarget.current = capTarget;
+  }, [capTarget]);
 
   const loadAnalysis = useCallback(async (target: number) => {
     // Ignore responses that arrive after a newer request was made.
@@ -65,12 +70,12 @@ export default function Home() {
       await syncSnapshot(auth.authorizedFetch);
       setSyncMessage("Waiting for the new snapshot…");
       await waitForNewSnapshot(auth.authorizedFetch, snapshotObservedAt);
-      await loadAnalysis(capTarget);
+      await loadAnalysis(latestCapTarget.current);
     } catch (cause) {
       setSyncMessage(cause instanceof Error ? cause.message : "Snapshot sync failed");
       setSyncStatus("error");
     }
-  }, [auth.authorizedFetch, capTarget, loadAnalysis, snapshotObservedAt]);
+  }, [auth.authorizedFetch, loadAnalysis, snapshotObservedAt]);
 
   // Load on sign-in, then re-run whenever the cap relief target settles.
   useEffect(() => {
@@ -152,7 +157,7 @@ export default function Home() {
               </LedgerRow>
             </section>
 
-            <RecommendedMoves analysis={analysis} capTarget={capTarget} onCapTargetChange={setCapTarget} busy={syncStatus === "loading"} />
+            <RecommendedMoves analysis={analysis} capTarget={capTarget} onCapTargetChange={setCapTarget} busy={syncStatus === "loading"} locked={syncStatus === "syncing"} />
 
             {analysis.warnings.length > 0 && (
               <section className="section">
@@ -208,11 +213,13 @@ function RecommendedMoves({
   capTarget,
   onCapTargetChange,
   busy,
+  locked,
 }: {
   analysis: LiveAnalysis;
   capTarget: number;
   onCapTargetChange: (value: number) => void;
   busy: boolean;
+  locked: boolean;
 }) {
   const evaluation = analysis.drop_evaluation;
   const cuts = evaluation.recommended_cuts ?? [];
@@ -223,7 +230,7 @@ function RecommendedMoves({
       <SectionHeading title="Recommended moves">
         <label className="target">
           <span>Cap relief target</span>
-          <input type="range" min="0" max="20" step="1" value={capTarget} onChange={(event) => onCapTargetChange(Number(event.target.value))} />
+          <input type="range" min="0" max="20" step="1" value={capTarget} disabled={locked} title={locked ? "Locked while a new snapshot is fetched" : undefined} onChange={(event) => onCapTargetChange(Number(event.target.value))} />
           <strong className="target-value">${capTarget}</strong>
         </label>
       </SectionHeading>
