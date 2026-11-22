@@ -142,22 +142,29 @@ export type DefensiveTrendsResponse = {
     available_defensive_players: number;
     players_with_snap_data: number;
     excluded_by_age: number;
+    position_groups?: TrendPositionGroup[];
     config: { recent_games: number; minimum_confirming_games: number; max_age?: number };
     trends: DefensiveTrend[] | null;
   };
 };
 
-// maxAge keeps players younger than it; 0 means no age filter.
+export type TrendPositionGroup = "DL" | "LB" | "DB";
+
+// maxAge keeps players younger than it (0: any age); positionGroup limits the
+// list to one defensive group (undefined: all groups).
+export type TrendFilters = { maxAge: number; positionGroup?: TrendPositionGroup };
+
 export async function defensiveFreeAgentTrends(
   fetcher: AuthorizedFetch,
-  maxAge: number,
+  filters: TrendFilters,
 ): Promise<DefensiveTrendsResponse> {
   const query = new URLSearchParams({
     season: String(leagueCoordinates.season),
     league_id: leagueCoordinates.leagueId,
     limit: "25",
   });
-  if (maxAge > 0) query.set("max_age", String(maxAge));
+  if (filters.maxAge > 0) query.set("max_age", String(filters.maxAge));
+  if (filters.positionGroup) query.set("position_groups", filters.positionGroup);
   return request<DefensiveTrendsResponse>(fetcher, `/v1/free-agents/defensive-trends?${query}`);
 }
 
