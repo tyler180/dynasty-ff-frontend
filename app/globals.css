@@ -274,6 +274,15 @@ button, input { font: inherit; color: inherit; }
 .table.compact td { padding-block: 9px; }
 
 .player { display: block; font-weight: 500; }
+.player-link {
+  width: fit-content;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--ink-3);
+  text-underline-offset: 3px;
+}
+.player-link:hover { color: var(--accent); text-decoration-color: currentColor; }
+.player-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .player-meta { display: block; color: var(--ink-3); font-size: 13px; }
 .reason { color: var(--ink-2); font-size: 14px; }
 .pick { font-weight: 600; }
