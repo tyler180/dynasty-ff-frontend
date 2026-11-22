@@ -116,6 +116,8 @@ export type WeeklyUsage = {
 export type DefensiveTrend = {
   player_id: string;
   name: string;
+  // Pro Football Reference player ID; absent when no snap fact carries one.
+  pfr_player_id?: string;
   position?: string;
   position_group: string;
   age: number | null;

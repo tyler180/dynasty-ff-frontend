@@ -76,3 +76,47 @@ test("renders the live analysis instead of the original rookie mock", async () =
   assert.doesNotMatch(page, /Jordyn Tyson|Makai Lemon|KC Concepcion/);
   assert.match(client, /analysis:\s*LiveAnalysis/);
 });
+
+// app/pfr.ts has no imports, so it can be transpiled and loaded directly
+// without relying on Node's TypeScript support.
+async function loadPfr() {
+  const { default: ts } = await import("typescript");
+  const source = await readFile(new URL("app/pfr.ts", root), "utf8");
+  const { outputText } = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  });
+  return import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+}
+
+test("builds Pro Football Reference game-log links for the latest season", async () => {
+  const { pfrGamelogUrl } = await loadPfr();
+  const base = "https://www.pro-football-reference.com/players";
+  const cases = [
+    ["BoetBr00", 2026, `${base}/B/BoetBr00/gamelog/2026/`],
+    ["Ya-SRo00", 2026, `${base}/Y/Ya-SRo00/gamelog/2026/`],
+    ["MasoR01", 2025, `${base}/M/MasoR01/gamelog/2025/`],
+    ["vandJo00", 2026, `${base}/V/vandJo00/gamelog/2026/`],
+    ["  WilsMa01 ", 2026, `${base}/W/WilsMa01/gamelog/2026/`],
+  ];
+  for (const [id, season, want] of cases) {
+    assert.equal(pfrGamelogUrl(id, season), want, `${id} ${season}`);
+  }
+  const rejected = [
+    [undefined, 2026], ["", 2026], ["Boet/Br00", 2026], ["javascript:alert(1)", 2026],
+    ["Boet Br00", 2026], ["BoetBr", 2026], ["BoetBr00", undefined], ["BoetBr00", 2026.5], ["BoetBr00", 1900],
+  ];
+  for (const [id, season] of rejected) {
+    assert.equal(pfrGamelogUrl(id, season), undefined, `${id} ${season} should not link`);
+  }
+});
+
+test("links free-agent names to their PFR game log in a new tab", async () => {
+  const [page, client] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/api-client.ts", root), "utf8"),
+  ]);
+  assert.match(client, /pfr_player_id\?: string/);
+  assert.match(page, /pfrGamelogUrl\(trend\.pfr_player_id, trend\.latest_season\)/);
+  assert.match(page, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(page, /<TrendPlayerName trend=\{trend\} \/>/);
+});

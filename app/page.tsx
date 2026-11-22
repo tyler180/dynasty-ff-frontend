@@ -16,6 +16,7 @@ import {
   type RookieBoardPool,
   type SyncMode,
 } from "./api-client";
+import { pfrGamelogUrl } from "./pfr";
 
 type View = "overview" | "roster" | "free-agents" | "draft";
 type RookiePool = "overall" | "offense" | "idp";
@@ -510,7 +511,7 @@ function FreeAgents({
             {rising.map((trend) => (
               <tr key={trend.player_id}>
                 <td>
-                  <span className="player">{trend.name}</span>
+                  <TrendPlayerName trend={trend} />
                   <span className="player-meta">{trend.position || trend.position_group.toUpperCase()} · {trend.age === null ? "age unknown" : `age ${trend.age}`}</span>
                 </td>
                 <td className="num">{sharePercent(trend.baseline.defense_snap_share)} → {sharePercent(trend.recent.defense_snap_share)}</td>
@@ -543,6 +544,19 @@ function Sparkline({ trend }: { trend: DefensiveTrend }) {
       <title>{label}</title>
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
+  );
+}
+
+// Links the name to the player's PFR game log for his latest season; without
+// a usable ID or season it stays plain text.
+function TrendPlayerName({ trend }: { trend: DefensiveTrend }) {
+  const href = pfrGamelogUrl(trend.pfr_player_id, trend.latest_season);
+  if (!href) return <span className="player">{trend.name}</span>;
+  return (
+    <a className="player player-link" href={href} target="_blank" rel="noopener noreferrer"
+      title={`${trend.name}'s ${trend.latest_season} game log on Pro Football Reference (opens in a new tab)`}>
+      {trend.name}
+    </a>
   );
 }
 
