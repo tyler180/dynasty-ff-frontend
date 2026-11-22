@@ -233,6 +233,7 @@ button, input { font: inherit; color: inherit; }
 }
 
 .section-tools { display: flex; align-items: center; gap: 12px; }
+.filter-tools { flex-wrap: wrap; gap: 8px 20px; }
 .section-meta { margin: 10px 0 0; color: var(--ink-3); font-size: 13px; }
 .count { color: var(--ink-3); font-size: 14px; }
 

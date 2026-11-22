@@ -5,6 +5,8 @@ import { useAuth } from "./auth";
 import {
   analyzeSnapshot,
   defensiveFreeAgentTrends,
+  type TrendFilters,
+  type TrendPositionGroup,
   leagueCoordinates,
   syncSnapshot,
   waitForNewSnapshot,
@@ -41,6 +43,14 @@ const ageFilters = [
   { value: 0, label: "Any age" },
 ];
 
+// Position filters for the free-agent view; undefined is every group.
+const positionFilters: Array<{ value?: TrendPositionGroup; label: string }> = [
+  { label: "All" },
+  { value: "DL", label: "DL" },
+  { value: "LB", label: "LB" },
+  { value: "DB", label: "DB" },
+];
+
 // Wait for the slider to settle before asking the model for a new plan.
 const capTargetDebounceMilliseconds = 450;
 
@@ -54,21 +64,21 @@ export default function Home() {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
   const [syncMessage, setSyncMessage] = useState("");
   const [draftMode, setDraftMode] = useState(false);
-  const [maxAge, setMaxAge] = useState(28);
+  const [trendFilters, setTrendFilters] = useState<TrendFilters>({ maxAge: 28 });
   const [trends, setTrends] = useState<TrendsState>({ status: "idle" });
   const latestRequest = useRef(0);
   const latestTrendsRequest = useRef(0);
   const hasRequested = useRef(false);
   // The snapshot sync reads the target when it finishes, not when it started.
   const latestCapTarget = useRef(capTarget);
-  // Likewise the open tab and age filter, which can change while a sync runs.
+  // Likewise the open tab and free-agent filters, which can change while a sync runs.
   const latestView = useRef(view);
-  const latestMaxAge = useRef(maxAge);
+  const latestTrendFilters = useRef(trendFilters);
   useEffect(() => {
     latestCapTarget.current = capTarget;
     latestView.current = view;
-    latestMaxAge.current = maxAge;
-  }, [capTarget, view, maxAge]);
+    latestTrendFilters.current = trendFilters;
+  }, [capTarget, view, trendFilters]);
 
   const loadAnalysis = useCallback(async (target: number) => {
     // Ignore responses that arrive after a newer request was made.
@@ -90,11 +100,11 @@ export default function Home() {
     }
   }, [auth.authorizedFetch]);
 
-  const loadTrends = useCallback(async (age: number) => {
+  const loadTrends = useCallback(async (filters: TrendFilters) => {
     const requestId = ++latestTrendsRequest.current;
     setTrends({ status: "loading" });
     try {
-      const response = await defensiveFreeAgentTrends(auth.authorizedFetch, age);
+      const response = await defensiveFreeAgentTrends(auth.authorizedFetch, filters);
       if (requestId !== latestTrendsRequest.current) return;
       if (!response.defensive_free_agent_trends) throw new Error("Free-agent trend response was empty");
       setTrends({ status: "ready", data: response.defensive_free_agent_trends });
@@ -116,7 +126,7 @@ export default function Home() {
         setDraftMode(true);
         setView("draft");
       } else if (latestView.current === "free-agents") {
-        void loadTrends(latestMaxAge.current);
+        void loadTrends(latestTrendFilters.current);
       } else {
         // Free agents change with the snapshot; reload them the next time the tab opens.
         setTrends({ status: "idle" });
@@ -139,12 +149,13 @@ export default function Home() {
   // Load free-agent trends the first time the tab opens and after each refresh.
   const selectView = (next: View) => {
     setView(next);
-    if (next === "free-agents" && trends.status === "idle") void loadTrends(maxAge);
+    if (next === "free-agents" && trends.status === "idle") void loadTrends(trendFilters);
   };
 
-  const changeMaxAge = (age: number) => {
-    setMaxAge(age);
-    void loadTrends(age);
+  const changeTrendFilters = (change: Partial<TrendFilters>) => {
+    const next = { ...trendFilters, ...change };
+    setTrendFilters(next);
+    void loadTrends(next);
   };
 
   if (!auth.ready) return <AuthScreen title="Opening Dynasty FF…" />;
@@ -233,7 +244,7 @@ export default function Home() {
         {view === "roster" && <RosterPlan analysis={analysis} />}
 
         {view === "free-agents" && (
-          <FreeAgents state={trends} maxAge={maxAge} onMaxAgeChange={changeMaxAge} onRetry={() => void loadTrends(maxAge)} />
+          <FreeAgents state={trends} filters={trendFilters} onFiltersChange={changeTrendFilters} onRetry={() => void loadTrends(trendFilters)} />
         )}
 
         {view === "draft" && (
@@ -461,13 +472,13 @@ function RookieBoard({
 
 function FreeAgents({
   state,
-  maxAge,
-  onMaxAgeChange,
+  filters,
+  onFiltersChange,
   onRetry,
 }: {
   state: TrendsState;
-  maxAge: number;
-  onMaxAgeChange: (age: number) => void;
+  filters: TrendFilters;
+  onFiltersChange: (change: Partial<TrendFilters>) => void;
   onRetry: () => void;
 }) {
   const data = state.status === "ready" ? state.data : undefined;
@@ -477,12 +488,24 @@ function FreeAgents({
   return (
     <section className={state.status === "loading" ? "section is-updating" : "section"}>
       <SectionHeading title="Rising defenders">
-        <div className="segmented" role="group" aria-label="Age filter">
-          {ageFilters.map((filter) => (
-            <button key={filter.value} className={maxAge === filter.value ? "active" : ""} aria-pressed={maxAge === filter.value} onClick={() => onMaxAgeChange(filter.value)}>
-              {filter.label}
-            </button>
-          ))}
+        <div className="section-tools filter-tools">
+          <div className="segmented" role="group" aria-label="Position filter">
+            {positionFilters.map((filter) => {
+              const active = filters.positionGroup === filter.value;
+              return (
+                <button key={filter.label} className={active ? "active" : ""} aria-pressed={active} onClick={() => onFiltersChange({ positionGroup: filter.value })}>
+                  {filter.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="segmented" role="group" aria-label="Age filter">
+            {ageFilters.map((filter) => (
+              <button key={filter.value} className={filters.maxAge === filter.value ? "active" : ""} aria-pressed={filters.maxAge === filter.value} onClick={() => onFiltersChange({ maxAge: filter.value })}>
+                {filter.label}
+              </button>
+            ))}
+          </div>
         </div>
       </SectionHeading>
       <p className="section-meta">
@@ -495,7 +518,7 @@ function FreeAgents({
         <p className="empty">{state.message} <button className="quiet-button" onClick={onRetry}>Try again</button></p>
       )}
       {(state.status === "idle" || (state.status === "loading" && !data)) && <p className="empty">Loading free agents…</p>}
-      {data && rising.length === 0 && <p className="empty">No available defenders are trending up right now.</p>}
+      {data && rising.length === 0 && <p className="empty">No available {filters.positionGroup ? `${filters.positionGroup}s` : "defenders"} are trending up right now.</p>}
       {rising.length > 0 && (
         <table className="table">
           <thead>

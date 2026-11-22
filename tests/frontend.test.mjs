@@ -77,16 +77,18 @@ test("renders the live analysis instead of the original rookie mock", async () =
   assert.match(client, /analysis:\s*LiveAnalysis/);
 });
 
-// app/pfr.ts has no imports, so it can be transpiled and loaded directly
-// without relying on Node's TypeScript support.
-async function loadPfr() {
+// app/pfr.ts and app/api-client.ts have no imports, so they can be transpiled
+// and loaded directly without relying on Node's TypeScript support.
+async function loadModule(path) {
   const { default: ts } = await import("typescript");
-  const source = await readFile(new URL("app/pfr.ts", root), "utf8");
+  const source = await readFile(new URL(path, root), "utf8");
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
   });
   return import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 }
+
+const loadPfr = () => loadModule("app/pfr.ts");
 
 test("builds Pro Football Reference game-log links for the latest season", async () => {
   const { pfrGamelogUrl } = await loadPfr();
@@ -119,4 +121,36 @@ test("links free-agent names to their PFR game log in a new tab", async () => {
   assert.match(page, /pfrGamelogUrl\(trend\.pfr_player_id, trend\.latest_season\)/);
   assert.match(page, /target="_blank" rel="noopener noreferrer"/);
   assert.match(page, /<TrendPlayerName trend=\{trend\} \/>/);
+});
+
+test("sends the free-agent age and position filters to the trends API", async () => {
+  const { defensiveFreeAgentTrends } = await loadModule("app/api-client.ts");
+  const cases = [
+    [{ maxAge: 28 }, { max_age: "28", position_groups: null }],
+    [{ maxAge: 0 }, { max_age: null, position_groups: null }],
+    [{ maxAge: 26, positionGroup: "LB" }, { max_age: "26", position_groups: "LB" }],
+    [{ maxAge: 0, positionGroup: "DB" }, { max_age: null, position_groups: "DB" }],
+  ];
+  for (const [filters, want] of cases) {
+    let requested;
+    const fetcher = async (input) => {
+      requested = new URL(input);
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    };
+    await defensiveFreeAgentTrends(fetcher, filters);
+    assert.equal(requested.pathname, "/v1/free-agents/defensive-trends");
+    assert.equal(requested.searchParams.get("limit"), "25");
+    for (const [key, value] of Object.entries(want)) {
+      assert.equal(requested.searchParams.get(key), value, `${JSON.stringify(filters)} ${key}`);
+    }
+  }
+});
+
+test("offers All, DL, LB and DB position filters on the free-agent view", async () => {
+  const page = await readFile(new URL("app/page.tsx", root), "utf8");
+  assert.match(page, /aria-label="Position filter"/);
+  for (const label of ["All", "DL", "LB", "DB"]) {
+    assert.match(page, new RegExp(`label: "${label}"`));
+  }
+  assert.match(page, /onFiltersChange\(\{ positionGroup: filter\.value \}\)/);
 });
